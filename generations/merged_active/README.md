@@ -41,9 +41,8 @@ From the release repository root, after installing the project and configuring
 `.env`:
 
 ```bash
-bash scripts/self_evolve.sh evaluate \
-  "$PWD/generations/merged_active/gen_0/modules" \
-  fix-git
+# Set MODULES_ROOT and TASK_NAME at the top of scripts/evaluate.sh, then run:
+bash scripts/evaluate.sh
 ```
 
 Set `ENVIRONMENT=e2b` and `E2B_API_KEY` to use E2B. The default environment is
