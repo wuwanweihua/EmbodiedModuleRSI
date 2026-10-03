@@ -35,7 +35,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.10 python3.10-dev python3-pip python3-venv \
         git git-lfs wget unzip ca-certificates \
-        libosmesa6 libgl1 libglib2.0-0 libegl1 libgles2 libglew2.2 \
+        tmux asciinema procps \
+        grep sed gawk findutils coreutils \
+        build-essential cmake pkg-config \
+        libosmesa6 libgl1 libglib2.0-0 libegl1 libgles2 libglew2.2 libglfw3 \
         libexpat1 libfontconfig1-dev libmagickwand-dev libpython3-stdlib \
         ffmpeg \
     && rm -rf /var/lib/apt/lists/* \

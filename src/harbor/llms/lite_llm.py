@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -201,6 +202,39 @@ class LiteLLM(BaseLLM):
             )
             return None
 
+    def _deployment_headers(self) -> dict[str, str]:
+        """Extra HTTP headers applied to every request.
+
+        Some gateways require deployment-specific headers — a stable session id
+        for routing/caching, or a client-identifying user agent. Configure them
+        once here instead of threading them through every call site:
+
+            HARBOR_LLM_EXTRA_HEADERS='{"x-opencode-session": "harness-run-1"}'
+            HARBOR_LLM_USER_AGENT='embodied-harness/1.0'
+
+        Read at call time so a `.env` change takes effect without a restart.
+        """
+        headers: dict[str, str] = {}
+        raw = os.environ.get("HARBOR_LLM_EXTRA_HEADERS", "").strip()
+        if raw:
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                self._logger.warning(
+                    "HARBOR_LLM_EXTRA_HEADERS is not valid JSON (%s); ignoring", exc
+                )
+            else:
+                if isinstance(parsed, dict):
+                    headers.update({str(k): str(v) for k, v in parsed.items()})
+                else:
+                    self._logger.warning(
+                        "HARBOR_LLM_EXTRA_HEADERS must be a JSON object; ignoring"
+                    )
+        user_agent = os.environ.get("HARBOR_LLM_USER_AGENT", "").strip()
+        if user_agent:
+            headers.setdefault("User-Agent", user_agent)
+        return headers
+
     def _clean_value(self, value):
         match value:
             case _ if callable(value):
@@ -348,6 +382,15 @@ class LiteLLM(BaseLLM):
             elif "extra_body" in kwargs:
                 kwargs["extra_body"] = {**kwargs["extra_body"]}
             completion_kwargs.update(kwargs)
+
+            # Deployment-wide headers (gateway session ids, client user agent).
+            # Caller-supplied extra_headers win over the env-provided ones.
+            deployment_headers = self._deployment_headers()
+            if deployment_headers:
+                completion_kwargs["extra_headers"] = {
+                    **deployment_headers,
+                    **(completion_kwargs.get("extra_headers") or {}),
+                }
 
             # Add thinking parameter for Anthropic models if max_thinking_tokens is set
             if self._max_thinking_tokens is not None and (

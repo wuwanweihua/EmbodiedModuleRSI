@@ -72,6 +72,22 @@ adds sibling variants. The robot API implementation is fixed in the image (the
 analogue of `bash` being fixed in the terminal setting); evolution changes the
 contract, validation, helpers and failure recovery around it.
 
+## Model endpoint
+
+`.env` needs `MODEL`, `API_BASE`, `HARBOR_EVO_API_KEY`, `HARBOR_MODEL_INFO`
+(note `MODEL` is deliberately not in `.env.example`; the launcher's placeholder
+default fails fast). `MODEL` uses litellm naming: `openai/<model>` for an
+OpenAI-compatible endpoint, or `deepseek/<model>` for DeepSeek's own API.
+
+Gateways that require their own routing headers work without code changes —
+they are applied to every request (solver, editor, summarizer subagents):
+
+```bash
+# .env — example: opencode go requires a stable session id
+HARBOR_LLM_EXTRA_HEADERS='{"x-opencode-session": "embodied-harness"}'
+HARBOR_LLM_USER_AGENT=embodied-harness/1.0
+```
+
 ## Known limitations (milestone 1)
 
 - 15 "seeds" are 15 separate task directories, so the paper's cross-task vote
