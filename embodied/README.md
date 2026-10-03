@@ -86,7 +86,42 @@ they are applied to every request (solver, editor, summarizer subagents):
 # .env — example: opencode go requires a stable session id
 HARBOR_LLM_EXTRA_HEADERS='{"x-opencode-session": "embodied-harness"}'
 HARBOR_LLM_USER_AGENT=embodied-harness/1.0
+# Endpoint rejects multimodal messages? Keep frames out of the LLM request
+# (they are still recorded in the trajectory):
+# HARBOR_DISABLE_IMAGES=1
 ```
+
+## Local mode (no container runtime)
+
+If the machine has no docker/podman/apptainer (for example, it *is* a container
+and cannot start `dockerd`), run the whole experiment natively with the `local`
+environment backend: the simulator, the agent's terminal and the verifier all
+run on this machine. The isolation boundary is the machine itself.
+
+```bash
+# once: tmux/asciinema, the fixed paths, and the robot-* CLIs
+bash embodied/setup_local_host.sh
+# then make LIBERO(-Pro) importable in the env that runs harbor (see the
+# script's closing instructions), and verify:
+robot-scene
+
+# generate tasks for local mode (allow_internet must be true: the local
+# backend cannot cut the network) and point score.py at this repo's robot.py
+python embodied/gen_tasks.py --environment local --robot-dir "$PWD/embodied/docker" \
+  --cell <cell> --bddl <path> --init-file <path> --instruction "<...>"
+
+ENVIRONMENT=local TASK_CONCURRENCY=1 bash embodied/run_evolve.sh
+```
+
+Caveats of local mode:
+- **One trial at a time** (`TASK_CONCURRENCY=1`, editor/sanity concurrency 1):
+  the fixed `/logs` paths are shared. The backend takes a lock and fails fast
+  if another trial is running.
+- **No network isolation**: tasks must set `allow_internet = true`.
+- The agent's shell sees this machine's filesystem as your user — including the
+  repo and `.env`. Use a scoped, revocable API key for these runs.
+- No container image is built, so the LIBERO install must be reproducible by
+  hand (record the exact commands / `conda env export` for the paper).
 
 ## Known limitations (milestone 1)
 

@@ -63,7 +63,7 @@ esac
 [[ "$MODEL" != "openai/model-name" ]] || fail "set MODEL in scripts/evolve.sh"
 [[ "$API_BASE" != "https://api.example.com/v1" ]] || fail "set API_BASE in .env or scripts/evolve.sh"
 [[ -d "$SUPPORT_DATASET_DIR/tasks" ]] || fail "dataset must contain tasks/: $SUPPORT_DATASET_DIR"
-case "$ENVIRONMENT" in docker|e2b) ;; *) fail "ENVIRONMENT must be docker or e2b" ;; esac
+case "$ENVIRONMENT" in docker|local|e2b) ;; *) fail "ENVIRONMENT must be docker, local or e2b" ;; esac
 case "$SUPPORT_SPLIT" in train|all) ;; *) fail "SUPPORT_SPLIT must be train or all" ;; esac
 case "$LOCKED_MODULE" in observation|tools|context_mgmt|agent_loop|verification) ;;
     *) fail "invalid LOCKED_MODULE: $LOCKED_MODULE" ;;

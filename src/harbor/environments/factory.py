@@ -32,6 +32,11 @@ _ENVIRONMENT_REGISTRY: dict[EnvironmentType, _EnvEntry] = {
         "DockerEnvironment",
         None,
     ),
+    EnvironmentType.LOCAL: _EnvEntry(
+        "harbor.environments.local",
+        "LocalEnvironment",
+        None,
+    ),
     EnvironmentType.DAYTONA: _EnvEntry(
         "harbor.environments.daytona",
         "DaytonaEnvironment",

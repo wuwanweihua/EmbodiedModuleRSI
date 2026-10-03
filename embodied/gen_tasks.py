@@ -53,7 +53,7 @@ cpus = 2
 memory_mb = 4096
 storage_mb = 8192
 build_timeout_sec = 60.0
-allow_internet = false
+allow_internet = {allow_internet}
 
 [environment.env]
 LIBERO_BDDL = "{bddl}"
@@ -118,7 +118,7 @@ import sys
 import traceback
 from pathlib import Path
 
-sys.path.insert(0, "/opt/robot")
+sys.path.insert(0, "{robot_dir}")
 
 POLICY = "/workspace/policy.py"
 EXPECTED_ROBOT_SHA256 = "{robot_sha}"
@@ -202,6 +202,8 @@ def _write_task(
     init_file: str,
     instruction: str,
     robot_sha: str,
+    allow_internet: bool,
+    robot_dir: str,
 ) -> Path:
     task_dir = TASKS_DIR / f"{cell}_seed_{seed:02d}"
     if task_dir.exists():
@@ -219,6 +221,7 @@ def _write_task(
             bddl=bddl,
             init_file=init_file,
             instruction=instruction.replace('"', '\\"'),
+            allow_internet="true" if allow_internet else "false",
         ),
         encoding="utf-8",
     )
@@ -229,7 +232,7 @@ def _write_task(
     test_sh.write_text(_TEST_SH, encoding="utf-8")
     test_sh.chmod(0o755)
     (task_dir / "tests" / "score.py").write_text(
-        _SCORE_PY.format(robot_sha=robot_sha), encoding="utf-8"
+        _SCORE_PY.format(robot_sha=robot_sha, robot_dir=robot_dir), encoding="utf-8"
     )
     return task_dir
 
@@ -242,7 +245,34 @@ def main() -> int:
     parser.add_argument("--instruction", required=True, help="task instruction (LIBERO-Pro wording)")
     parser.add_argument("--n-train", type=int, default=N_TRAIN)
     parser.add_argument("--n-eval", type=int, default=N_EVAL)
+    parser.add_argument(
+        "--robot-dir",
+        default="/opt/robot",
+        help=(
+            "Directory holding robot.py that score.py imports. docker mode: the "
+            "in-image path /opt/robot; local mode: <repo>/embodied/docker"
+        ),
+    )
+    parser.add_argument(
+        "--environment",
+        choices=("docker", "local"),
+        default="docker",
+        help=(
+            "Target environment backend. docker -> allow_internet=false (the "
+            "container can be isolated); local -> allow_internet=true, because "
+            "the LocalEnvironment cannot enforce network isolation."
+        ),
+    )
     args = parser.parse_args()
+
+    # The local backend cannot cut the network, and Harbor's validator rejects
+    # allow_internet=false for it, so local tasks must declare internet on.
+    allow_internet = args.environment == "local"
+    if allow_internet:
+        print(
+            "note: --environment local -> allow_internet=true "
+            "(network isolation is not enforced by the local backend)"
+        )
 
     if not ROBOT_PY.is_file():
         print(f"missing {ROBOT_PY}", file=sys.stderr)
@@ -254,7 +284,15 @@ def main() -> int:
     for seed in range(args.n_train + args.n_eval):
         split = "train" if seed < args.n_train else "eval"
         task_dir = _write_task(
-            args.cell, seed, split, args.bddl, args.init_file, args.instruction, robot_sha
+            args.cell,
+            seed,
+            split,
+            args.bddl,
+            args.init_file,
+            args.instruction,
+            robot_sha,
+            allow_internet,
+            args.robot_dir,
         )
         rows.append({"name": task_dir.name, "split": split, "seed_index": seed})
         print(f"wrote {task_dir.relative_to(REPO_ROOT)}")

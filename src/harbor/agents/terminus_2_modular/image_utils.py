@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+import os
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -29,6 +30,17 @@ from harbor.agents.terminus_2_modular.protocols import ImageRef
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
 _IMAGE_PART_TYPES = ("image_url", "image")
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def images_disabled() -> bool:
+    """True when the deployment must not send image content parts.
+
+    Set `HARBOR_DISABLE_IMAGES=1` for endpoints that reject multimodal
+    messages. Frames are still produced and recorded in the trajectory; they
+    just never enter the LLM request.
+    """
+    return os.environ.get("HARBOR_DISABLE_IMAGES", "").strip().lower() in _TRUTHY
 
 
 def data_url(ref: ImageRef, max_bytes: int = MAX_IMAGE_BYTES) -> str | None:
@@ -57,6 +69,8 @@ def build_user_content(
     keep their exact wire format). Otherwise returns a content-parts list:
     the text first, then up to `max_images` frames (newest last).
     """
+    if images_disabled():
+        return prompt
     refs = list(refs)[-max_images:] if max_images > 0 else []
     parts: list[dict[str, Any]] = []
     skipped = 0

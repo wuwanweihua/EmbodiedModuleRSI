@@ -139,7 +139,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("HARBOR_EVO_API_KEY") or None,
         help=argparse.SUPPRESS,
     )
-    parser.add_argument("--environment", choices=("docker", "e2b"), default="docker")
+    parser.add_argument("--environment", choices=("docker", "local", "e2b"), default="docker")
     parser.add_argument("--profile", choices=tuple(PROFILES), default="train")
     parser.add_argument("--max-lanes", type=int, choices=(1, 2), default=2)
     parser.add_argument("--attempts", type=int, default=3)

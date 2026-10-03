@@ -46,6 +46,14 @@ def test_build_user_content_skips_oversized(tmp_path):
     assert build_user_content("prompt", [ref]) == "prompt"
 
 
+def test_images_disabled_env_switch(tmp_path, monkeypatch):
+    ref = ImageRef(path=str(_png(tmp_path / "f.png")), media_type="image/png")
+    monkeypatch.setenv("HARBOR_DISABLE_IMAGES", "1")
+    assert build_user_content("prompt", [ref]) == "prompt"
+    monkeypatch.setenv("HARBOR_DISABLE_IMAGES", "off")
+    assert isinstance(build_user_content("prompt", [ref]), list)
+
+
 def test_build_user_content_keeps_newest(tmp_path):
     refs = [
         ImageRef(path=str(_png(tmp_path / f"f{i}.jpg", b"a" * 2048))) for i in range(3)
