@@ -159,6 +159,27 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(__file__).parent / "editor_skills",
     )
+    parser.add_argument(
+        "--parent-modules-for-gen0",
+        type=Path,
+        default=None,
+        help=(
+            "Modules directory used to seed gen_0. Default: the installed "
+            "package's terminus_2_modular/modules (terminal baseline). Point "
+            "this at a domain-specific tree (e.g. embodied/modules) to start "
+            "evolution from different baselines."
+        ),
+    )
+    parser.add_argument(
+        "--solver-temperature",
+        type=float,
+        default=SOLVER_TEMPERATURE,
+        help=(
+            "Sampling temperature for solver rollouts. K-roll same-task "
+            "contrast needs >0: at 0.0 the K rolls of one task are identical "
+            "and there is no pass/fail pair to learn from."
+        ),
+    )
     return parser
 
 
@@ -239,12 +260,13 @@ def main(argv: list[str] | None = None) -> int:
             support_task_dir=support_task_dir,
             e2b_accounts=_e2b_accounts(),
             e2b_per_account_cap=E2B_PER_ACCOUNT_CAP,
-            solver_temperature=SOLVER_TEMPERATURE,
+            solver_temperature=args.solver_temperature,
             locked_module_type=args.locked_module,
             composer_scope="locked",
             attempts=attempts,
             max_lanes=args.max_lanes,
             sanity_concurrency=6,
+            parent_modules_for_gen0=args.parent_modules_for_gen0,
         )
     )
     print(outcome.summary())

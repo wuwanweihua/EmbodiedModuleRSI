@@ -34,10 +34,15 @@ from tenacity import (
     stop_after_attempt,
 )
 
+from harbor.agents.terminus_2_modular.image_utils import (
+    build_user_content,
+    evict_images,
+)
 from harbor.agents.terminus_2_modular.protocols import (
     AgentLoopResult,
     AgentLoopState,
     ContextMgmt,
+    ImageRef,
     ModuleCtx,
     ObsState,
     Observation,
@@ -52,6 +57,8 @@ from harbor.llms.base import (
 )
 from harbor.llms.chat import Chat
 from harbor.models.trajectories import (
+    ContentPart,
+    ImageSource,
     Metrics,
     Observation as AtifObservation,
     ObservationResult,
@@ -62,6 +69,7 @@ from harbor.models.trajectories import (
 
 _DEFAULT_MAX_ITERATIONS = 1_000_000
 _MAX_HANDOFF_TERMINAL_CHARS = 20_000
+_IMAGE_MEDIA_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
 
 
 @dataclass
@@ -139,6 +147,10 @@ class BaselineAgentLoop:
         carry_refs: list[Any] | None = None
         carry_handoff: str | None = None
         consecutive_parse_errors = 0
+        # Frames produced by the most recent observation. Attached to the next
+        # LLM call and recorded in this step's trajectory observation, then
+        # cleared (a multimodal observation must not leak into every later call).
+        pending_images: list[ImageRef] = []
 
         self._n_episodes = 0
         for step_idx in range(self.max_iterations):
@@ -193,6 +205,7 @@ class BaselineAgentLoop:
                     tools=tools,
                     original_instruction=original_instruction,
                     logging_paths=logging_paths,
+                    images=pending_images,
                 )
             except Exception as exc:
                 import traceback
@@ -212,6 +225,7 @@ class BaselineAgentLoop:
                     failure_tag="llm_call_failed",
                 )
             llm_response = call_result.response
+            pending_images = []
 
             # 6. Reactive summarization (from inside _query_llm) carry-over
             if call_result.summarization_occurred:
@@ -293,6 +307,9 @@ class BaselineAgentLoop:
             obs_result, obs_state = await observation.capture(obs_state, ctx)
             state.last_obs = obs_result
             state.last_tool_result = last_tool_result
+            # Frames from this observation ride on the NEXT LLM call (and on this
+            # step's recorded observation).
+            pending_images = list(getattr(obs_result, "images", None) or [])
 
             # Build the raw observation that gets fed back to the LLM next
             # round. For solver/tmux mode tool outputs are empty (the tmux
@@ -333,6 +350,7 @@ class BaselineAgentLoop:
                 ),
                 step_episode=step_idx,
                 ctx=ctx,
+                images=pending_images,
             )
             recorder.dump()
 
@@ -625,22 +643,36 @@ class BaselineAgentLoop:
         tools: ToolSet,
         original_instruction: str,
         logging_paths: tuple[Path | None, Path | None, Path | None],
+        images: list[ImageRef] | None = None,
     ) -> _LLMCallResult:
         """Wraps chat.chat with retry + ContextLengthExceededError fallback +
         OutputLengthExceededError handling. Mirrors `Terminus2._query_llm`.
+
+        `images` are host-side frames attached to this user turn; the call
+        degrades to plain text when none of them is readable.
         """
         _logging_path, prompt_path, response_path = logging_paths
 
+        content = build_user_content(prompt, images or [])
+
         if prompt_path is not None:
             try:
-                prompt_path.write_text(prompt)
+                prompt_path.write_text(
+                    content
+                    if isinstance(content, str)
+                    else f"{prompt}\n[{len(content) - 1} image(s) attached]"
+                )
             except Exception:
                 pass
 
         try:
             start = time.time()
-            llm_response = await chat.chat(prompt=prompt, **self.llm_call_kwargs)
+            if isinstance(content, str):
+                llm_response = await chat.chat(prompt=content, **self.llm_call_kwargs)
+            else:
+                llm_response = await chat.chat_parts(content, **self.llm_call_kwargs)
             self.api_request_times.append((time.time() - start) * 1000)
+            self._evict_stale_images(chat, ctx)
 
             if response_path is not None:
                 try:
@@ -653,6 +685,9 @@ class BaselineAgentLoop:
             ctx.services.logger.debug(
                 "ContextLengthExceededError; falling back to summarization"
             )
+            # Drop every attached frame first: re-uploading past images is a
+            # common cause of overflow, and summarization is text-only anyway.
+            self._evict_stale_images(chat, ctx, keep_last=0)
             comp = await context_mgmt.force_summarize(chat, original_instruction, ctx)
             # Match stock Terminus-2 when summarization is disabled: it re-raises
             # the context error immediately.  Retrying the unchanged chat turned
@@ -778,6 +813,39 @@ class BaselineAgentLoop:
             f"Latest terminal output:\n{terminal_output}"
         )
 
+    def _evict_stale_images(
+        self, chat: Chat, ctx: ModuleCtx, keep_last: int = 2
+    ) -> None:
+        """Flatten image parts outside the trailing message window so the
+        conversation does not re-upload every past frame on every call.
+        `keep_last` counts messages (2 = the last user/assistant pair)."""
+        try:
+            if evict_images(chat.messages, keep_last=keep_last):
+                chat.reset_response_chain()
+        except Exception as exc:  # history hygiene must never break the loop
+            ctx.services.logger.warning("image eviction failed: %s", exc)
+
+    @staticmethod
+    def _observation_content(
+        text: str, images: list[ImageRef] | None
+    ) -> str | list[ContentPart]:
+        """ATIF observation content: plain text, or text + image parts."""
+        refs = list(images or [])
+        if not refs:
+            return text
+        parts: list[ContentPart] = [ContentPart(type="text", text=text)]
+        for ref in refs:
+            media_type = (
+                ref.media_type if ref.media_type in _IMAGE_MEDIA_TYPES else "image/jpeg"
+            )
+            parts.append(
+                ContentPart(
+                    type="image",
+                    source=ImageSource(media_type=media_type, path=ref.path),
+                )
+            )
+        return parts
+
     def _build_message_content(self, parse, llm_response) -> str:
         if self.raw_content:
             return llm_response.content
@@ -812,7 +880,9 @@ class BaselineAgentLoop:
         snapshot,
         step_episode: int,
         ctx: ModuleCtx,
+        images: list[ImageRef] | None = None,
     ) -> None:
+        obs_content = self._observation_content(observation_text, images)
         tool_calls = None
         obs_results = []
         if not self.raw_content:
@@ -829,7 +899,7 @@ class BaselineAgentLoop:
                             },
                         )
                     )
-                obs_results.append(ObservationResult(content=observation_text))
+                obs_results.append(ObservationResult(content=obs_content))
             if parse.is_task_complete:
                 tool_calls_list.append(
                     AtifToolCall(
@@ -839,12 +909,12 @@ class BaselineAgentLoop:
                     )
                 )
                 if not parse.commands:
-                    obs_results.append(ObservationResult(content=observation_text))
+                    obs_results.append(ObservationResult(content=obs_content))
             elif not parse.commands:
-                obs_results.append(ObservationResult(content=observation_text))
+                obs_results.append(ObservationResult(content=obs_content))
             tool_calls = tool_calls_list or None
         else:
-            obs_results.append(ObservationResult(content=observation_text))
+            obs_results.append(ObservationResult(content=obs_content))
 
         step_id = len(recorder.steps) + 1
         recorder.append_step(

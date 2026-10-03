@@ -163,10 +163,28 @@ class SolverHelper:
 
 
 @dataclass
+class ImageRef:
+    """One image attached to an observation.
+
+    `path` is a HOST-side path the harness can read (e.g. under the trial's
+    agent dir, which is bind-mounted from the sandbox's /logs/agent). The
+    agent_loop converts these into multimodal content parts for the next LLM
+    call and into ATIF `ContentPart`s for the trajectory.
+    """
+
+    path: str
+    media_type: str = "image/jpeg"
+
+
+@dataclass
 class ObsResult:
     """What `observation.capture()` returns."""
 
     text: str  # human-readable text fed to LLM (latest terminal pane)
+    # Optional frames attached to the NEXT LLM call. Empty for text-only
+    # observations (the terminal baseline never populates this), so existing
+    # modules and callers are unaffected.
+    images: list[ImageRef] = field(default_factory=list)
 
 
 @dataclass

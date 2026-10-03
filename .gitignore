@@ -271,6 +271,10 @@ scripts/rerun_gen22_solo.sh
 _scaleswe_probe/
 Untitled
 
+# Embodied experiment: task instances are generated per cell with server-side paths
+embodied/tasks/
+embodied/manifest.json
+
 # This must remain last: published task fixtures may intentionally use names or
 # extensions ignored above for local development outputs.
 !evolution_data/

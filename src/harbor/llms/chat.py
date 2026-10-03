@@ -86,8 +86,39 @@ class Chat:
         logging_path: Path | None = None,
         **kwargs,
     ) -> LLMResponse:
+        """Send one text-only user turn."""
+        return await self._chat_with_content(
+            prompt, logging_path=logging_path, **kwargs
+        )
+
+    async def chat_parts(
+        self,
+        parts: list[dict[str, Any]],
+        logging_path: Path | None = None,
+        **kwargs,
+    ) -> LLMResponse:
+        """Send one user turn as multimodal content parts.
+
+        `parts` uses the OpenAI chat-completions wire format, e.g.
+        [{"type": "text", "text": ...},
+         {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}].
+
+        Only the chat-completions path supports parts; the Responses API path
+        raises (the models this harness runs are served over OpenAI-compatible
+        chat completions).
+        """
+        return await self._chat_with_content(
+            parts, logging_path=logging_path, **kwargs
+        )
+
+    async def _chat_with_content(
+        self,
+        content: str | list[dict[str, Any]],
+        logging_path: Path | None = None,
+        **kwargs,
+    ) -> LLMResponse:
         llm_response: LLMResponse = await self._model.call(
-            prompt=prompt,
+            prompt=content,
             message_history=self._messages,
             logging_path=logging_path,
             previous_response_id=self._last_response_id,
@@ -116,7 +147,7 @@ class Chat:
 
         self._messages.extend(
             [
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": content},
                 assistant_message,
             ]
         )

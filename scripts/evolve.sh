@@ -23,6 +23,8 @@ ENVIRONMENT="${ENVIRONMENT:-docker}"           # docker | e2b
 SUPPORT_DATASET_DIR="${SUPPORT_DATASET_DIR:-$REPO_ROOT/../ModularRSI_2000_Instances/tb}"
 SUPPORT_SPLIT="${SUPPORT_SPLIT:-train}"         # train (120) | all (1000)
 LOCKED_MODULE="${LOCKED_MODULE:-tools}"          # observation | tools | context_mgmt | agent_loop | verification
+PARENT_MODULES_FOR_GEN0="${PARENT_MODULES_FOR_GEN0:-}"  # empty = package modules (terminal baseline); point at a domain tree to change the gen_0 seed
+SOLVER_TEMPERATURE="${SOLVER_TEMPERATURE:-0.0}"  # K-roll same-task contrast needs >0 (e.g. 0.7)
 
 PROFILE="${PROFILE:-train}"                     # train | smoke
 REFLECT_EVERY="${REFLECT_EVERY:-}"             # empty = profile default (train: 10, smoke: 2)
@@ -126,12 +128,16 @@ ARGS=(
     --attempts "$ATTEMPTS"
     --max-lanes "$MAX_LANES"
     --agent-timeout-multiplier "$AGENT_TIMEOUT_MULTIPLIER"
+    --solver-temperature "$SOLVER_TEMPERATURE"
 )
 [[ -z "$MAX_TASKS" ]] || ARGS+=(--max-tasks "$MAX_TASKS")
+[[ -z "$PARENT_MODULES_FOR_GEN0" ]] || ARGS+=(--parent-modules-for-gen0 "$PARENT_MODULES_FOR_GEN0")
 
 echo "model       : $MODEL"
 echo "dataset     : $SUPPORT_DATASET_DIR ($SUPPORT_SPLIT)"
 echo "module      : $LOCKED_MODULE"
+echo "gen0 seed   : ${PARENT_MODULES_FOR_GEN0:-<package modules>}"
+echo "temperature : $SOLVER_TEMPERATURE"
 echo "workload    : epochs=$EPOCHS reflect_every=$REFLECT_EVERY concurrency=$TASK_CONCURRENCY attempts=$ATTEMPTS"
 echo "environment : $ENVIRONMENT"
 echo "output      : $ARCHIVE_ROOT"

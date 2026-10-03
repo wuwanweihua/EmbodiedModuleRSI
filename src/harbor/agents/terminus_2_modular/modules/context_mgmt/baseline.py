@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from harbor.agents.terminus_2_modular.image_utils import project_text_only
 from harbor.agents.terminus_2_modular.protocols import CompressResult, ModuleCtx
 from harbor.llms.base import LLMResponse
 from harbor.llms.chat import Chat
@@ -462,12 +463,14 @@ class BaselineContextMgmt:
         )
         response_step_id = prompt_step_id + 1
 
-        # Call LLM directly (not chat — this is a subagent, no history mutation)
+        # Call LLM directly (not chat — this is a subagent, no history mutation).
+        # Multimodal history is projected to text: the summarizer is text-only
+        # and must not re-upload frames.
         llm = chat._model
         start = time.time()
         response: LLMResponse = await llm.call(
             prompt=prompt,
-            message_history=message_history,
+            message_history=project_text_only(message_history),
             **(llm_call_kwargs or {}),
         )
         elapsed_ms = (time.time() - start) * 1000

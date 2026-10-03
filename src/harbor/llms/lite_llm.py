@@ -219,7 +219,12 @@ class LiteLLM(BaseLLM):
                     for v in value
                     if self._clean_value(v) is not None
                 ]
-            case str() | int() | float() | bool():
+            case str():
+                # Base64 image data URIs would otherwise bloat request logs.
+                if value.startswith("data:") and len(value) > 256:
+                    return f"<data-uri elided: {len(value)} chars>"
+                return value
+            case int() | float() | bool():
                 return value
             case _:
                 return str(value)
@@ -271,18 +276,31 @@ class LiteLLM(BaseLLM):
     )
     async def call(
         self,
-        prompt: str,
+        prompt: str | list[dict[str, Any]],
         message_history: list[dict[str, Any] | Message] = [],
         response_format: dict | type[BaseModel] | None = None,
         logging_path: Path | None = None,
         **kwargs,
     ) -> LLMResponse:
+        # A list prompt is a multimodal content-parts user turn (OpenAI wire
+        # format). It only exists on the chat-completions path.
+        multimodal = not isinstance(prompt, str)
+
         if self._use_responses_api:
+            if multimodal:
+                raise ValueError(
+                    "multimodal content parts are not supported on the "
+                    "Responses API path; use a chat-completions model"
+                )
             return await self._call_responses(
                 prompt, message_history, response_format, logging_path, **kwargs
             )
 
         if response_format is not None and not self._supports_response_format:
+            if multimodal:
+                raise ValueError(
+                    "response_format cannot be combined with multimodal content parts"
+                )
             if isinstance(response_format, dict):
                 schema = json.dumps(response_format, indent=2)
             else:
