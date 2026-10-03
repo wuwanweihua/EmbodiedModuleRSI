@@ -212,10 +212,13 @@ class TerminalBaselineTools:
         """Create and start the tmux session. Stash into ctx.shared."""
         state = ctx.state
         env = state.env
+        # Ask the environment for its paths: container backends use /logs/agent,
+        # the local backend may remap them (e.g. under $HOME when there is no root).
+        agent_dir = env.env_paths.agent_dir
 
         if state.record_terminal_session:
             local_recording_path = env.trial_paths.agent_dir / "recording.cast"
-            remote_recording_path = EnvironmentPaths.agent_dir / "recording.cast"
+            remote_recording_path = agent_dir / "recording.cast"
         else:
             local_recording_path = None
             remote_recording_path = None
@@ -223,7 +226,7 @@ class TerminalBaselineTools:
         session = TmuxSession(
             session_name=self._session_name,
             environment=env,
-            logging_path=EnvironmentPaths.agent_dir / "terminus_2_modular.pane",
+            logging_path=agent_dir / "terminus_2_modular.pane",
             local_asciinema_recording_path=local_recording_path,
             remote_asciinema_recording_path=remote_recording_path,
             pane_width=self._pane_width,

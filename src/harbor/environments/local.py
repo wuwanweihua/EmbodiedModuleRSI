@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
 
 from harbor.environments.base import BaseEnvironment, EnvironmentPath, ExecResult
@@ -56,14 +56,33 @@ def _root() -> Path:
 
 
 def _host_path(env_path: EnvironmentPath | str) -> Path:
-    """Map an in-environment path (``/logs/agent``) to a host path."""
+    """Map an in-environment path (``/logs/agent``) to a host path.
+
+    Paths that already start with the configured root are returned unchanged, so
+    commands built from ``env_paths`` (which are already remapped) work too.
+    """
     raw = str(env_path)
     root = _root()
-    return raw if root == Path("/") else root / raw.lstrip("/")
+    if root == Path("/"):
+        return Path(raw)
+    if raw == str(root) or raw.startswith(str(root) + "/"):
+        return Path(raw)
+    return root / raw.lstrip("/")
 
 
 def _current_uid() -> int | None:
     return os.getuid() if hasattr(os, "getuid") else None
+
+
+def _clear_dir(path: Path) -> None:
+    """Remove everything inside *path* but keep the directory itself."""
+    if not path.is_dir():
+        return
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
 
 
 class LocalEnvironment(BaseEnvironment):
@@ -85,6 +104,20 @@ class LocalEnvironment(BaseEnvironment):
             windows=False,
             mounted=True,
         )
+
+    @property
+    def env_paths(self) -> EnvironmentPaths:
+        """``/logs``, ``/tests``, … — or the same tree under HARBOR_LOCAL_ROOT.
+
+        Without root you cannot create ``/logs``; point HARBOR_LOCAL_ROOT at a
+        writable directory (e.g. ``$HOME/harbor-root``) and every environment
+        path moves under it, including the paths Harbor's verifier and trial
+        runner build their commands from.
+        """
+        root = _root()
+        if root == Path("/"):
+            return EnvironmentPaths.for_os(self.task_os)
+        return EnvironmentPaths._with_root(PurePosixPath(root.as_posix()))
 
     def _validate_definition(self) -> None:
         """No Dockerfile or compose file is needed: the environment is the host."""
@@ -153,6 +186,16 @@ class LocalEnvironment(BaseEnvironment):
         for env_path in (EnvironmentPaths.tests_dir, EnvironmentPaths.solution_dir):
             _host_path(env_path).mkdir(parents=True, exist_ok=True)
 
+        # A fresh trial must not inherit the previous trial's workspace: leftover
+        # agent artifacts (e.g. a working policy.py) would leak across rollouts
+        # and inflate success rates, corrupting the pass/fail contrast this
+        # experiment learns from.
+        workspace = _host_path(self.task_env.get("WORKSPACE") or "/workspace")
+        if workspace.is_dir():
+            _clear_dir(workspace)
+        else:
+            workspace.mkdir(parents=True, exist_ok=True)
+
         self.logger.info(
             "LocalEnvironment ready (logs -> %s, one trial at a time)", trial_dir
         )
@@ -178,11 +221,7 @@ class LocalEnvironment(BaseEnvironment):
             host = _host_path(env_path)
             target = host.resolve() if host.is_symlink() else host
             if target.is_dir():
-                for child in target.iterdir():
-                    if child.is_dir() and not child.is_symlink():
-                        shutil.rmtree(child, ignore_errors=True)
-                    else:
-                        child.unlink(missing_ok=True)
+                _clear_dir(target)
             elif target.exists():
                 target.unlink(missing_ok=True)
         for env_path in create_dirs:

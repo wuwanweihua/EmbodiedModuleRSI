@@ -99,15 +99,19 @@ environment backend: the simulator, the agent's terminal and the verifier all
 run on this machine. The isolation boundary is the machine itself.
 
 ```bash
-# once: tmux/asciinema, the fixed paths, and the robot-* CLIs
+# once: everything under $HOME, no root required
 bash embodied/setup_local_host.sh
-# then make LIBERO(-Pro) importable in the env that runs harbor (see the
-# script's closing instructions), and verify:
+# then, in every experiment shell:
+export HARBOR_LOCAL_ROOT="$HOME/harbor-root"      # must match --local-root below
+export PATH="$HOME/.local/bin:$PATH"
+# make LIBERO(-Pro) importable in the env that runs harbor (see the script's
+# closing instructions), and verify:
 robot-scene
 
-# generate tasks for local mode (allow_internet must be true: the local
-# backend cannot cut the network) and point score.py at this repo's robot.py
-python embodied/gen_tasks.py --environment local --robot-dir "$PWD/embodied/docker" \
+# generate tasks for local mode: allow_internet=true (the local backend cannot
+# cut the network) and every fixed path moved under HARBOR_LOCAL_ROOT
+python embodied/gen_tasks.py --environment local --local-root "$HARBOR_LOCAL_ROOT" \
+  --robot-dir "$PWD/embodied/docker" \
   --cell <cell> --bddl <path> --init-file <path> --instruction "<...>"
 
 ENVIRONMENT=local TASK_CONCURRENCY=1 bash embodied/run_evolve.sh

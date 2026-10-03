@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -62,6 +63,7 @@ LIBERO_INIT_STATE = "{seed}"
 LIBERO_INSTRUCTION = "{instruction}"
 ROBOT_BUDGET = "600"
 MUJOCO_GL = "osmesa"
+{extra_env}
 
 [verifier]
 timeout_sec = 1800.0
@@ -71,6 +73,7 @@ LIBERO_BDDL = "{bddl}"
 LIBERO_INIT_FILE = "{init_file}"
 LIBERO_INIT_STATE = "{seed}"
 LIBERO_INSTRUCTION = "{instruction}"
+{extra_env}
 
 [agent]
 timeout_sec = 3600.0
@@ -120,7 +123,7 @@ from pathlib import Path
 
 sys.path.insert(0, "{robot_dir}")
 
-POLICY = "/workspace/policy.py"
+POLICY = os.environ.get("ROBOT_POLICY", "/workspace/policy.py")
 EXPECTED_ROBOT_SHA256 = "{robot_sha}"
 REWARD_PATH = Path("/logs/verifier/reward.txt")
 
@@ -204,6 +207,7 @@ def _write_task(
     robot_sha: str,
     allow_internet: bool,
     robot_dir: str,
+    extra_env: str,
 ) -> Path:
     task_dir = TASKS_DIR / f"{cell}_seed_{seed:02d}"
     if task_dir.exists():
@@ -222,6 +226,7 @@ def _write_task(
             init_file=init_file,
             instruction=instruction.replace('"', '\\"'),
             allow_internet="true" if allow_internet else "false",
+            extra_env=extra_env,
         ),
         encoding="utf-8",
     )
@@ -246,6 +251,14 @@ def main() -> int:
     parser.add_argument("--n-train", type=int, default=N_TRAIN)
     parser.add_argument("--n-eval", type=int, default=N_EVAL)
     parser.add_argument(
+        "--local-root",
+        default="~/harbor-root",
+        help=(
+            "local mode only: the writable root that HARBOR_LOCAL_ROOT points "
+            "at. Its workspace/ and logs/ replace /workspace and /logs."
+        ),
+    )
+    parser.add_argument(
         "--robot-dir",
         default="/opt/robot",
         help=(
@@ -268,10 +281,22 @@ def main() -> int:
     # The local backend cannot cut the network, and Harbor's validator rejects
     # allow_internet=false for it, so local tasks must declare internet on.
     allow_internet = args.environment == "local"
+    extra_env = ""
     if allow_internet:
+        local_root = os.path.expanduser(args.local_root).rstrip("/")
+        workspace = f"{local_root}/workspace"
+        extra_env = "\n".join(
+            [
+                f'WORKSPACE = "{workspace}"',
+                f'ROBOT_POLICY = "{workspace}/policy.py"',
+                f'ROBOT_FRAMES_DIR = "{local_root}/logs/agent/frames"',
+                f'ROBOT_API_PATH = "{args.robot_dir}/robot.py"',
+            ]
+        )
         print(
             "note: --environment local -> allow_internet=true "
-            "(network isolation is not enforced by the local backend)"
+            "(no network isolation) and paths under "
+            f"{local_root} (set HARBOR_LOCAL_ROOT to match)"
         )
 
     if not ROBOT_PY.is_file():
@@ -293,6 +318,7 @@ def main() -> int:
             robot_sha,
             allow_internet,
             args.robot_dir,
+            extra_env,
         )
         rows.append({"name": task_dir.name, "split": split, "seed_index": seed})
         print(f"wrote {task_dir.relative_to(REPO_ROOT)}")

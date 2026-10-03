@@ -29,6 +29,23 @@ def test_tools_contract_is_in_the_initial_prompt(tmp_path):
     assert "pick up the bowl" in prompt
 
 
+def test_contract_follows_remapped_environment_paths(tmp_path):
+    """No-root deployments move the fixed paths; the contract must follow."""
+    tools = BaselineTools()
+    ctx = _ctx(tmp_path)
+    ctx.state.env = SimpleNamespace(
+        task_env={
+            "WORKSPACE": "/home/u/harbor-root/workspace",
+            "ROBOT_POLICY": "/home/u/harbor-root/workspace/policy.py",
+            "ROBOT_API_PATH": "/repo/embodied/docker/robot.py",
+        }
+    )
+    prompt = tools.format_initial_prompt("pick up the bowl", "", ctx)
+    assert "/home/u/harbor-root/workspace/policy.py" in prompt
+    assert "/repo/embodied/docker/robot.py" in prompt
+    assert "/workspace/policy.py" not in prompt
+
+
 def test_observation_attaches_new_frames_only(tmp_path):
     frames = tmp_path / "frames"
     frames.mkdir()

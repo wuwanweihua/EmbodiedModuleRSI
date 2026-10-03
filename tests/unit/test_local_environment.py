@@ -128,6 +128,20 @@ def test_reset_dirs_clears_contents_but_keeps_links(tmp_path, monkeypatch):
     asyncio.run(env.stop(delete=False))
 
 
+def test_start_clears_the_workspace_between_trials(tmp_path, monkeypatch):
+    """A leftover policy.py must not leak into the next trial."""
+    env = _env(tmp_path, monkeypatch)
+    root = Path(os.environ["HARBOR_LOCAL_ROOT"])
+    workspace = root / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "policy.py").write_text("print('stale')")
+
+    asyncio.run(env.start(force_build=False))
+    assert workspace.is_dir()
+    assert not (workspace / "policy.py").exists()
+    asyncio.run(env.stop(delete=False))
+
+
 @pytest.mark.skipif(os.name != "posix", reason="lock uses fcntl (POSIX)")
 def test_single_trial_lock(tmp_path, monkeypatch):
     env_a = _env(tmp_path / "a", monkeypatch)

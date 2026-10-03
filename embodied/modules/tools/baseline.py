@@ -35,7 +35,7 @@ POLICY_PATH = "/workspace/policy.py"
 API_PATH = "/opt/robot/robot.py"
 FRAMES_DIR = "/logs/agent/frames"
 
-_EMBODIED_CONTRACT = f"""
+_EMBODIED_CONTRACT = """
 ## Embodied task contract (LIBERO-Pro)
 
 You control a Franka Panda arm in a MuJoCo tabletop scene. You do NOT drive
@@ -43,20 +43,20 @@ joints directly: you write a Python program that calls the `robot` API and run
 it inside the sandbox.
 
 ### Deliverable
-Write your program to `{POLICY_PATH}`. It must define:
+Write your program to `{policy_path}`. It must define:
 
     def run(robot):
         ...  # your policy; return when the task is finished or the budget is out
 
 Run it with:
 
-    robot-run {POLICY_PATH}
+    robot-run {policy_path}
 
 The run prints a structured trace (one line per API call, then a summary).
 Frames are captured automatically after each primitive and are attached to
 your next observation.
 
-### Robot API (module `robot`; full docstrings in `{API_PATH}`)
+### Robot API (module `robot`; full docstrings in `{api_path}`)
 
 Scene:
     robot.instruction()            task instruction (same as this prompt)
@@ -92,8 +92,8 @@ Utility:
   cannot query it; verify progress with `robot.scene()` instead.
 
 ### Failure signatures and what they mean
-- `ModuleNotFoundError: robot` → run it with `robot-run {POLICY_PATH}`
-  (plain `python3 {POLICY_PATH}` has no environment bound).
+- `ModuleNotFoundError: robot` → run it with `robot-run {policy_path}`
+  (plain `python3 {policy_path}` has no environment bound).
 - `{{"ok": false, "detail": "unreachable"}}` → the target is outside the arm's
   reachable workspace or blocked. Re-plan the approach; do not repeat the same
   motion.
@@ -152,8 +152,25 @@ class BaselineTools(TerminalBaselineTools):
         terminal_state: str,
         ctx: ModuleCtx,
     ) -> str:
-        """Task instruction + embodied contract, then the inherited template."""
-        augmented = f"{instruction}\n{_EMBODIED_CONTRACT}"
+        """Task instruction + embodied contract, then the inherited template.
+
+        Paths come from the task's own environment when the backend provides
+        them (`[environment].env`), so a deployment that cannot use `/workspace`
+        and `/logs` (e.g. the local backend without root) still gets a coherent
+        contract. Otherwise the classic container paths are used.
+        """
+        task_env: dict[str, str] = {}
+        env = getattr(ctx.state, "env", None)
+        if env is not None:
+            task_env = getattr(env, "task_env", {}) or {}
+        workspace = task_env.get("WORKSPACE", "/workspace").rstrip("/")
+        policy_path = task_env.get("ROBOT_POLICY", f"{workspace}/policy.py")
+        api_path = task_env.get("ROBOT_API_PATH", API_PATH)
+
+        contract = _EMBODIED_CONTRACT.format(
+            policy_path=policy_path, api_path=api_path
+        )
+        augmented = f"{instruction}\n{contract}"
         if self._contract_extra:
             augmented = f"{augmented}\n{self._contract_extra}"
         return super().format_initial_prompt(augmented, terminal_state, ctx)

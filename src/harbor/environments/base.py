@@ -230,6 +230,17 @@ class BaseEnvironment(ABC):
         return EnvironmentPaths.for_os(self.task_os)
 
     @property
+    def task_env(self) -> dict[str, str]:
+        """Environment variables declared by the task's ``[environment].env``.
+
+        Populated for backends that apply them per command (e.g. the local
+        backend); compose-based backends pass them through the compose file and
+        return an empty mapping here. Domain modules use this to discover
+        deployment-specific paths (e.g. a remapped workspace).
+        """
+        return dict(self._persistent_env)
+
+    @property
     def task_os(self) -> TaskOS:
         """Target operating system declared by the task's [environment].os field."""
         return self.task_env_config.os
